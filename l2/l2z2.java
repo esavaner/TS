@@ -1,7 +1,6 @@
 import org.jgrapht.GraphPath;
 import org.jgrapht.alg.connectivity.ConnectivityInspector;
 import org.jgrapht.alg.shortestpath.DijkstraShortestPath;
-import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.graph.SimpleGraph;
 
 import java.io.*;
@@ -18,8 +17,7 @@ public class l2z2 {
         } catch (IOException e) {}
     }
     private void createGraph() throws IOException {
-        SimpleGraph<Integer, DefaultEdge> graph = new SimpleGraph<>(DefaultEdge.class);
-        ArrayList<WeightedEdge> edges = new ArrayList<>();
+        SimpleGraph<Integer, WeightedEdge> graph = new SimpleGraph<Integer, WeightedEdge>(WeightedEdge.class);
         int[][] N = new int[v.vertexNumber][v.vertexNumber];                //macierz natezen
         int[][] capacity = new int[v.vertexNumber][v.vertexNumber];   //macierz pojemnosci
 
@@ -56,61 +54,65 @@ public class l2z2 {
             String[] edgeS = line.split("-");
             int a = Integer.parseInt(edgeS[0]);
             int b = Integer.parseInt(edgeS[1]);
-            edges.add(new WeightedEdge(graph.addEdge(a, b), 0, capacity[a-1][b-1], v.p));
+            WeightedEdge edge = new WeightedEdge(0, capacity[a-1][b-1], v.p);
+            graph.addEdge(a, b, edge);
         }
 
-        int failed = start(graph, edges, N);
+        int failed = start(graph, N);
         System.out.println("Niezawodnosc:  " + (v.tests - (double)failed)/v.tests);
         System.out.println("Liczba porazek: " + failed);
     }
 
-    private int start(SimpleGraph<Integer, DefaultEdge> graph, ArrayList<WeightedEdge> edges, int[][] N) {
+    private int start(SimpleGraph<Integer, WeightedEdge> graph, int[][] N) {
         int failed = 0;
-        SimpleGraph<Integer, DefaultEdge> clone;
-        ArrayList<WeightedEdge> edgesClone;
-        ArrayList<WeightedEdge> remove = new ArrayList<>();
+        SimpleGraph<Integer, WeightedEdge> clone;
         for(int i=0; i<v.tests; i++) {
-            remove.clear();
-            clone = (SimpleGraph<Integer, DefaultEdge>)graph.clone();
-            edgesClone = cloneList(edges);
-            for(WeightedEdge e : edgesClone) {
-                if(e.getReliability() < random.nextFloat()) {
-                    remove.add(e);
-                }
-            }
-            for(WeightedEdge e : remove) {
-                edgesClone.remove(e);
-                clone.removeEdge(e.getEdge());
-            }
+            clone = (SimpleGraph<Integer, WeightedEdge>)graph.clone();
+            removeByProbability(clone);
+
             for(int j=1; j<=v.vertexNumber; j++) {
                 for(int k=1; k<=v.vertexNumber; k++) {
-                    GraphPath<Integer, DefaultEdge> path = DijkstraShortestPath.findPathBetween(clone, j, k);
+                    GraphPath<Integer, WeightedEdge> path = DijkstraShortestPath.findPathBetween(clone, j, k);
                     if(path != null)
-                        for(DefaultEdge pathEdge: path.getEdgeList())
-                            for(WeightedEdge e: edgesClone)
-                                if(e.getEdge().equals(pathEdge)) {
-                                    e.addA(N[j-1][k-1]);
-                                    break;
-                                }
+                        for(WeightedEdge pathEdge: path.getEdgeList()) {
+                            pathEdge.addA(N[j-1][k-1]);
+                        }
                 }
             }
 
             ConnectivityInspector ci = new ConnectivityInspector(clone);
-            if(!ci.isConnected() || overflowed(edgesClone, v.m) || !correctAvgDelay(avgDelay(edgesClone, N)))
+            if(ci.isConnected()) {
+                if (!overflowed(clone)) {
+                    if (!correctAvgDelay(avgDelay(clone, N)))
+                        failed++;
+                } else
+                    failed++;
+            } else
                 failed++;
         }
         return failed;
     }
 
+    private void removeByProbability(SimpleGraph<Integer, WeightedEdge> graph) {
+        ArrayList<WeightedEdge> toRemove = new ArrayList<>();
+        for(WeightedEdge e : graph.edgeSet()) {
+            if(e.getReliability() < random.nextDouble()) {
+                toRemove.add(e);
+            }
+        }
+        for(WeightedEdge e : toRemove) {
+            graph.removeEdge(e);
+        }
+    }
 
     private boolean correctAvgDelay(double T) {
         return T < v.T_max;
     }
 
-    private double avgDelay(ArrayList<WeightedEdge> edges, int[][] N) {
+    private double avgDelay(SimpleGraph<Integer, WeightedEdge> graph, int[][] N) {
         double SUM_e = 0;
         double G = 0;
-        for(WeightedEdge e: edges) {
+        for(WeightedEdge e: graph.edgeSet()) {
             SUM_e += (e.getA()/e.getC()/v.m - e.getA());
         }
         for(int i=0; i<v.vertexNumber; i++) {
@@ -122,15 +124,15 @@ public class l2z2 {
     }
 
 
-    private boolean overflowed(ArrayList<WeightedEdge> edges, int packageSize) {
-        for(WeightedEdge e: edges) {
-            if(e.overflowed(packageSize))
+    private boolean overflowed(SimpleGraph<Integer, WeightedEdge> graph) {
+        for(WeightedEdge e: graph.edgeSet()) {
+            if(e.overflowed(v.m))
                 return true;
         }
         return false;
     }
 
-    public ArrayList<WeightedEdge> cloneList(ArrayList<WeightedEdge> edges) {
+    private ArrayList<WeightedEdge> cloneList(ArrayList<WeightedEdge> edges) {
         ArrayList<WeightedEdge> clonedList = new ArrayList<>(edges.size());
         for(WeightedEdge e : edges) {
             clonedList.add(new WeightedEdge(e));

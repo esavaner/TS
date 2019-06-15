@@ -1,30 +1,23 @@
 import org.jgrapht.graph.DefaultEdge;
 
-class WeightedEdge {
-    private DefaultEdge edge;
+class WeightedEdge extends DefaultEdge {
     private double a;
     private double c;
     private double reliability;
-    WeightedEdge(DefaultEdge edge, double a, double c, double reliability) {
-        this.edge = edge;
+    WeightedEdge( double a, double c, double reliability) {
         this.a = a;
         this.c = c;
         this.reliability = reliability;
     }
 
     WeightedEdge(WeightedEdge e) {
-        this.edge = e.edge;
         this.a = e.a;
         this.c = e.c;
         this.reliability = e.reliability;
 
     }
     boolean overflowed(int packageSize) {
-        return a*packageSize > c;
-    }
-
-    DefaultEdge getEdge() {
-        return edge;
+        return a * packageSize >= c;
     }
 
     double getA() {
@@ -42,5 +35,4 @@ class WeightedEdge {
     double getReliability() {
         return reliability;
     }
-
 }

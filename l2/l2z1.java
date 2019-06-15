@@ -1,7 +1,5 @@
 import org.jgrapht.alg.connectivity.ConnectivityInspector;
-import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.graph.SimpleGraph;
-
 
 import java.util.ArrayList;
 import java.util.Random;
@@ -14,30 +12,29 @@ public class l2z1 {
     }
 
     private void start() {
-        ArrayList<WeightedEdge> edges = new ArrayList<>();
-        SimpleGraph<Integer, DefaultEdge> graph = new SimpleGraph<>(DefaultEdge.class);
+        SimpleGraph<Integer, WeightedEdge> graph = new SimpleGraph<>(WeightedEdge.class);
 
         //test 1 podpunktu
         for (int i = 1; i <= 20; i++) {
             graph.addVertex(i);
         }
         for (int j = 1; j <= 19; j++) {
-            DefaultEdge de = graph.addEdge(j, j + 1);
-            edges.add(new WeightedEdge(de, 1, 1, 0.95));
+            WeightedEdge we = new WeightedEdge(1, 1, 0.95);
+            graph.addEdge(j, j+1, we);
         }
-        System.out.println("Niezawodnosc 1 grafu: "+ monteCarlo(edges, graph));
+        System.out.println("Niezawodnosc 1 grafu: "+ monteCarlo(graph));
 
 
         //test 2 podpunktu
-        DefaultEdge de = graph.addEdge(20, 1);
-        edges.add(new WeightedEdge(de,1, 1, 0.95));
-        System.out.println("Niezawodnosc 2 grafu: "+ monteCarlo(edges, graph));
+        WeightedEdge we = new WeightedEdge(1, 1, 0.95);
+        graph.addEdge(20,1,we);
+        System.out.println("Niezawodnosc 2 grafu: "+ monteCarlo(graph));
 
 
         //test 3 podpunktu
-        edges.add(new WeightedEdge(graph.addEdge(1, 10), 1, 1, 0.8));
-        edges.add(new WeightedEdge(graph.addEdge(5, 15), 1, 1, 0.7));
-        System.out.println("Niezawodnosc 3 grafu: " + monteCarlo(edges, graph));
+        graph.addEdge(1,10, new WeightedEdge(1,1,0.8));
+        graph.addEdge(5,15,new WeightedEdge(1,1,0.7));
+        System.out.println("Niezawodnosc 3 grafu: " + monteCarlo(graph));
 
 
         //test 4 podpunktu
@@ -45,25 +42,33 @@ public class l2z1 {
             int a = random.nextInt(19) + 1;
             int b = random.nextInt(19) + 1;
             if (!graph.containsEdge(a, b) && a != b)
-                edges.add(new WeightedEdge(graph.addEdge(a, b), 1, 1, 0.4));
+                graph.addEdge(a,b,new WeightedEdge(1,1,0.4));
             else
                 i--;
         }
-        System.out.println("Niezawodnosc 4 grafu: " + monteCarlo(edges, graph));
+        System.out.println("Niezawodnosc 4 grafu: " + monteCarlo(graph));
     }
 
-    private double monteCarlo(ArrayList<WeightedEdge> edges, SimpleGraph<Integer, DefaultEdge> graph) {
-        SimpleGraph<Integer, DefaultEdge> clone = (SimpleGraph<Integer, DefaultEdge>)graph.clone();
+    private double monteCarlo(SimpleGraph<Integer, WeightedEdge> graph) {
+        SimpleGraph<Integer, WeightedEdge> clone = (SimpleGraph<Integer, WeightedEdge>)graph.clone();
+        ArrayList<WeightedEdge> toRemove = new ArrayList<>();
         int tests = 10000;
         int passed = 0;
         for(int i = 0; i < tests; i++) {
-            for(WeightedEdge e: edges)
+            toRemove.clear();
+            for(WeightedEdge e : clone.edgeSet())
                 if(e.getReliability() < random.nextFloat())
-                    clone.removeEdge(e.getEdge());
+                    toRemove.add(e);
+
+            for(WeightedEdge e : toRemove)
+                clone.removeEdge(e);
+
             ConnectivityInspector ci = new ConnectivityInspector<>(clone);
+
             if(ci.isConnected())
                 passed++;
-            clone = (SimpleGraph<Integer, DefaultEdge>)graph.clone();
+            clone = (SimpleGraph<Integer, WeightedEdge>)graph.clone();
+
         }
         return (double)passed/tests;
     }
