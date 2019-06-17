@@ -1,128 +1,106 @@
-﻿import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.util.HashMap;
+import java.net.*;
+import java.util.Hashtable;
 
 class Z2Sender {
-    private static final int datagramSize = 50;
-    private static final int sleepTime = 500;
+    static final int datagramSize = 50;
+    static final int sleepTime = 200;
+    static final int maxPacket = 50;
+    InetAddress localHost;
+    int destinationPort;
+    DatagramSocket socket;
+    SenderThread sender;
+    ReceiverThread receiver;
+    Reader reader;
 
-    private int timeout = 5000;
+    int confirmed = -1;
+    final int bufferSize = 10;
+    static final int timeout = 5000;
+    Hashtable<Integer, DatagramPacket> packets;
 
-    private final HashMap<Integer, Thread> sent = new HashMap<>();
-
-    private InetAddress localHost;
-    private int destinationPort;
-    private final DatagramSocket socket;
-    private SenderThread sender;
-    private ReceiverThread receiver;
-
-    private Z2Sender(int myPort, int destPort) throws Exception {
+    public Z2Sender(int myPort, int destPort) throws Exception {
         localHost = InetAddress.getByName("127.0.0.1");
         destinationPort = destPort;
         socket = new DatagramSocket(myPort);
         sender = new SenderThread();
         receiver = new ReceiverThread();
-    }
 
-    private Thread checkAndResend(int seq, int data) {
-        return new Thread() {
-            synchronized public void run() {
-                try {
-                    wait(timeout);
-                } catch (InterruptedException e) {
-                    synchronized (sent) {
-                        if (sent.isEmpty()) {
-                            System.out.println("Sending end of transmission");
-                            //end of transmission
-                            Z2Packet p = new Z2Packet(4 + 1);
-                            p.setIntAt(-1, 0);
-                            DatagramPacket packet = new DatagramPacket(p.data, p.data.length, localHost, destinationPort);
-                            try {
-                                socket.send(packet);
-                            } catch (IOException ee) {/**/}
-                            sent.put(-1, checkAndResend(-1, 0));
-                            sent.get(-1).start();
-                        }
-                    }
-                    return;
-                }
-                Z2Packet p = new Z2Packet(4 + 1);
-                p.setIntAt(seq, 0);
-                p.data[4] = (byte) data;
-                DatagramPacket packet = new DatagramPacket(p.data, p.data.length, localHost, destinationPort);
-                try {
-                    synchronized (socket) {
-                        socket.send(packet);
-                    }
-                    synchronized (sent) {
-                        sent.remove(seq);
-                        sent.put(seq, checkAndResend(seq, data));
-                        sent.get(seq).start();
-                    }
-                } catch (IOException e) {/**/}
-            }
-        };
+        reader = new Reader();
+        packets = new Hashtable<>();
     }
 
     class SenderThread extends Thread {
-        @Override
         public void run() {
-            int i, x;
             try {
-                for (i = 0; (x = System.in.read()) >= 0; i++) {
-                    Z2Packet p = new Z2Packet(4 + 1);
-                    p.setIntAt(i, 0);
-                    p.data[4] = (byte) x;
-                    DatagramPacket packet = new DatagramPacket(p.data, p.data.length, localHost, destinationPort);
-                    socket.send(packet);
-                    synchronized (sent) {
-                        sent.put(i, checkAndResend(i, x));
-                        sent.get(i).start();
+                int toSend = 0;
+                while(true) {
+                    synchronized(this) {
+                        toSend = confirmed + 1;
                     }
-                    sleep(sleepTime);
+                    for(int i = 0; i < bufferSize && i < packets.size(); i++) {
+                        DatagramPacket packet = packets.get(toSend + i);
+                        Z2Packet p = new Z2Packet(packet.getData());
+                        System.out.println("Wysylanie: " + p.getIntAt(0) + ": " + (char)p.data[4]);
+    	    	        socket.send(packet);
+                    }
+    	    	    sleep(timeout);
+    	    	}
+    	    } catch(Exception e) {
+                System.out.println("Z2Sender.SenderThread.run: "+e);
+    	    }
+        }
+    }   
+
+    class Reader extends Thread {
+        public void run() {
+            int x;
+            try {
+    	        for(int i=0; (x = System.in.read()) >= 0 ; i++) {
+                    Z2Packet p = new Z2Packet(4+1);
+                    p.setIntAt(i, 0);
+                    p.data[4]= (byte) x;
+	    	        DatagramPacket packet = new DatagramPacket(p.data, p.data.length, localHost, destinationPort);
+                    packets.put(i, packet);
                 }
-            } catch (IOException e) {
-                System.out.println("IO");
-            } catch (InterruptedException e) {
-                System.out.println("Interrupt");
+            } catch(Exception e) {
+                System.out.println("Z2Sender.Reader.run: " +e);
             }
         }
     }
+
 
     class ReceiverThread extends Thread {
-        @Override
         public void run() {
             try {
-                while (true) {
-                    byte[] data = new byte[datagramSize];
-                    DatagramPacket packet = new DatagramPacket(data, datagramSize);
-                    socket.receive(packet);
+	            while(true) {
+		            byte[] data = new byte[datagramSize];
+		            DatagramPacket packet = new DatagramPacket(data, datagramSize);
+		            socket.receive(packet);
                     Z2Packet p = new Z2Packet(packet.getData());
-                    synchronized (sent) {
-                        if (sent.containsKey(p.getIntAt(0))) {
-                            sent.get(p.getIntAt(0)).interrupt();
-                            sent.remove(p.getIntAt(0));
-                            System.out.println("Successfully transmitted char at " + p.getIntAt(0) + ": " + (char) p.data[4]);
-                        }
+
+                    int pNumber = p.getIntAt(0);
+		            System.out.println("S:" + pNumber + " potwierdzono");
+                    if(pNumber > confirmed) {
+                        deleteConfirmed(confirmed, pNumber);
+                        confirmed = pNumber;
                     }
-                }
-            } catch (IOException e) {
-                System.out.println("IO");
+		        }
+	        } catch(Exception e) {
+                System.out.println("Z2Sender.ReceiverThread.run: "+e);
+	        }
+        }
+
+        synchronized private void deleteConfirmed(int prevConf, int newConf) {
+            for(int i = prevConf + 1; i <= newConf; i++) {
+                packets.remove(i);
             }
         }
     }
 
-    public static void main(String[] args) {
-        Z2Sender sender;
-        try {
-            sender = new Z2Sender(Integer.parseInt(args[0]), Integer.parseInt(args[1]));
-        } catch (Exception e) {
-            System.out.println("lol error");
-            return;
-        }
-        sender.sender.start();
+
+    public static void main(String[] args) throws Exception {
+    	Z2Sender sender = new Z2Sender(Integer.parseInt(args[0]), Integer.parseInt(args[1]));
+        sender.reader.start();
+    	sender.sender.start();
         sender.receiver.start();
     }
 }

@@ -1,75 +1,82 @@
-﻿import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.util.*;
+import java.net.*;
+import java.util.Hashtable;
 
 public class Z2Receiver {
-    private static final int datagramSize = 50;
-    private int destinationPort;
-
-    private TreeMap<Integer, Character> received = new TreeMap<>();
-
-    private InetAddress localHost;
-    private DatagramSocket socket;
-    private ReceiverThread receiver;
-
+    static final int datagramSize=50;
+    InetAddress localHost;
+    int destinationPort;
+    DatagramSocket socket;
+    ReceiverThread receiver;
+    
+    SenderThread sender;
+    private Hashtable<Integer, Z2Packet> packets;
+    int last = -1;
+    private static final int timeout = 5000;
+    
     public Z2Receiver(int myPort, int destPort) throws Exception {
         localHost = InetAddress.getByName("127.0.0.1");
         destinationPort = destPort;
         socket = new DatagramSocket(myPort);
-        receiver = new ReceiverThread();
+        receiver = new ReceiverThread();    
+    
+        sender = new SenderThread();
+        packets = new Hashtable<>();
     }
 
     class ReceiverThread extends Thread {
-        @Override
         public void run() {
             try {
-                while (true) {
-                    byte[] data = new byte[datagramSize];
-                    DatagramPacket packet = new DatagramPacket(data, datagramSize);
-                    socket.receive(packet);
+        	    while(true) {
+        		    byte[] data = new byte[datagramSize];
+        		    DatagramPacket packet = new DatagramPacket(data, datagramSize);
+        		    socket.receive(packet);
                     Z2Packet p = new Z2Packet(packet.getData());
-                    if (p.getIntAt(0) == -1) {
-                        System.out.println("Final message:");
-                        for (Map.Entry<Integer, Character> e : received.entrySet()) {
-                            System.out.print(e.getValue());
+    
+                    int pNumber = p.getIntAt(0);
+                    if(pNumber == last + 1) { 
+                        System.out.println("R:" + pNumber + ": "+ (char) p.data[4]);
+                        synchronized(this) {
+                            last++;
                         }
-                        System.out.println();
-                        break;
-                    }
+                        while(packets.containsKey(last + 1)) {
+                            synchronized(this) {
+                                last++;
+                            }
+                            p = packets.remove(last);   
+                            System.out.println("R:" + last + ": "+ (char) p.data[4]);
+                        }
+                    } else if (pNumber > last + 1 && !packets.containsKey(pNumber)) 
+                        packets.put(pNumber, p);
+        
+        		}
+        	} catch(Exception e) {
+                System.out.println("Z2Receiver.ReceiverThread.run: "+e);
+        	}
+        }
+    }
 
-                    if (!received.containsKey(p.getIntAt(0))) {
-                        received.put(p.getIntAt(0), (char) p.data[4]);
-                        checkIntegrityAndPrint(p.getIntAt(0));
+
+    class SenderThread extends Thread {
+        public void run() {
+            try {
+                while(true) {
+                    sleep(timeout);
+                    if(last != -1) {
+                        Z2Packet p = new Z2Packet(4);
+                        p.setIntAt(last, 0);
+                        DatagramPacket packet = new DatagramPacket(p.data, p.data.length, localHost, destinationPort);
+                        socket.send(packet);
                     }
-                    packet.setPort(destinationPort);
-                    socket.send(packet);
                 }
             } catch (Exception e) {
-                System.out.println("Z2Receiver.ReceiverThread.run: " + e);
+                System.out.println("Z2Receiver.SenderThread.run: " +e);
             }
         }
     }
 
-    private void checkIntegrityAndPrint(int index) {
-        for (int i = 0; i < index; i++) {
-            if (!received.containsKey(i)) return;
-        }
-        System.out.println("CURRENT MESSAGE");
-        for (int i = 0; i <= index; i++) {
-            System.out.print(received.get(i).charValue());
-        }
-        System.out.println();
-    }
-
-    public static void main(String[] args) {
-        Z2Receiver receiver;
-        try {
-            receiver = new Z2Receiver(Integer.parseInt(args[0]), Integer.parseInt(args[1]));
-        } catch (Exception e) {
-            System.out.println("error lol");
-            return;
-        }
-        receiver.receiver.start();
+    public static void main(String[] args) throws Exception {
+    	Z2Receiver receiver = new Z2Receiver( Integer.parseInt(args[0]), Integer.parseInt(args[1]));
+    	receiver.receiver.start();
+        receiver.sender.start();
     }
 }
